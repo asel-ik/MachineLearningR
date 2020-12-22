@@ -1,0 +1,545 @@
+---
+title: "INF2167-FinalProject_v1"
+author: "Asel Kushkeyeva"
+date: "01/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+Research Question 2:
+
+Are there changes in the types of drugs sold in the years after Trump was elected? Additionally, are there general changes in the types of drugs sold and the overall financial standing of pharmaceutical industry between 2014 and 2018? To answer these, we are scoping our analysis to be between 2014 and 2018, cross referencing the top ten US pharmaceutical companies with the stock market datasets.
+
+
+
+#### Load Financial Indicators dataset
+```{r}
+fin2014 <- read.csv("/Users/aselkushkeyeva/Desktop/Year2/Fall2020/INF2167AppliedDataScienceUsingR/FinalProject/200FinIndicatorsUSstocks/2014_Financial_Data.csv")
+fin2015 <- read.csv("/Users/aselkushkeyeva/Desktop/Year2/Fall2020/INF2167AppliedDataScienceUsingR/FinalProject/200FinIndicatorsUSstocks/2015_Financial_Data.csv")
+fin2016 <- read.csv("/Users/aselkushkeyeva/Desktop/Year2/Fall2020/INF2167AppliedDataScienceUsingR/FinalProject/200FinIndicatorsUSstocks/2016_Financial_Data.csv")
+fin2017 <- read.csv("/Users/aselkushkeyeva/Desktop/Year2/Fall2020/INF2167AppliedDataScienceUsingR/FinalProject/200FinIndicatorsUSstocks/2017_Financial_Data.csv")
+fin2018 <- read.csv("/Users/aselkushkeyeva/Desktop/Year2/Fall2020/INF2167AppliedDataScienceUsingR/FinalProject/200FinIndicatorsUSstocks/2018_Financial_Data.csv")
+```
+
+#### Merge the datasets
+```{r}
+#rename the non-matching column to merge the datasets
+fin2014$X201X.PRICE.VAR.... <- fin2014$X2015.PRICE.VAR.... 
+fin2015$X201X.PRICE.VAR.... <- fin2015$X2016.PRICE.VAR....
+fin2016$X201X.PRICE.VAR.... <- fin2016$X2017.PRICE.VAR....
+fin2017$X201X.PRICE.VAR.... <- fin2017$X2018.PRICE.VAR....
+fin2018$X201X.PRICE.VAR.... <- fin2018$X2019.PRICE.VAR....
+
+#Remove the original non-matching columns
+fin2014 <- fin2014[, -224]
+fin2015 <- fin2015[, -224]
+fin2016 <- fin2016[, -224]
+fin2017 <- fin2017[, -224]
+fin2018 <- fin2018[, -224]
+
+# Add Year column in each dataset
+fin2014$year <- c(2014)
+fin2015$year <- c(2015)
+fin2016$year <- c(2016)
+fin2017$year <- c(2017)
+fin2018$year <- c(2018)
+
+#Merge the datasets
+fin2014_2015_obama <- rbind(fin2014,fin2015)
+fin2017_2018_trump <- rbind(fin2017,fin2018)
+
+fin14to18 <- rbind(fin2014,fin2015, fin2016, fin2017,fin2018)
+```
+
+## Summary Stats for selected variables:
+```{r}
+summary(fin14to18$Long.term.investments, na.rm = TRUE)
+summary(fin14to18$Tax.Liabilities, na.rm = TRUE)
+summary(fin14to18$Financing.Cash.Flow, na.rm = TRUE)
+summary(fin14to18$Net.Cash.Marketcap, na.rm = TRUE)
+summary(fin14to18$priceEarningsToGrowthRatio, na.rm = TRUE)
+summary(fin14to18$Net.Debt.to.EBITDA, na.rm = TRUE)
+summary(fin14to18$Graham.Number, na.rm = TRUE)
+summary(fin14to18$X5Y.Net.Income.Growth..per.Share., na.rm = TRUE)
+summary(fin14to18$Asset.Growth, na.rm = TRUE)
+```
+
+#### Load pharma stock tickers datasets and merge into one.
+https://topforeignstocks.com/stock-lists/the-complete-list-of-biotech-stocks-trading-on-nasdaq/
+https://topforeignstocks.com/stock-lists/the-complete-list-of-major-pharmaceutical-stocks-on-the-nyse/
+
+```{r}
+stock_tickers <- read.csv("/Users/aselkushkeyeva/Downloads/list_major_pharma.csv")
+stock_tickers <- stock_tickers[-48,] 
+
+stock_tickers2 <- read.csv("/Users/aselkushkeyeva/Downloads/list_biotech.csv")
+stock_tickers2 <- stock_tickers2[-718,]
+stock_tickers2 <- stock_tickers2[, -c(4:14)]
+
+tickers <- rbind(stock_tickers, stock_tickers2)
+
+```
+
+
+#### make X common and pharmaceuticals in 2014_2015 and 2017_2018 on all sectors data (not subsetted to Healthcare) 
+```{r}
+
+# Create a dummy variable to check if X is in tickers dataset created in the previous chunk:
+fin2014_2015_obama$X_ph <- ifelse(fin2014_2015_obama$X %in% tickers$Ticker, 1, 0)
+fin2017_2018_trump$X_ph <- ifelse(fin2017_2018_trump$X %in% tickers$Ticker, 1, 0)
+
+#Filter pharmaceuticals:
+obama_pharma <- fin2014_2015_obama %>% filter(X_ph == 1)
+trump_pharma <- fin2017_2018_trump %>% filter(X_ph == 1)
+
+# Find common X for pharmaceuticals because obama_pharma and trump_pharma are of different number of rows:
+com <- intersect(obama_pharma$X, trump_pharma$X)
+# Create yet another dummy variable to check if X is common:
+obama_pharma$X_2 <- ifelse(obama_pharma$X %in% com, 1, 0)
+trump_pharma$X_2 <- ifelse(trump_pharma$X %in% com, 1, 0)
+
+#Filter common Xs:
+obama_pharma <- obama_pharma %>% filter(X_2 == 1)
+trump_pharma <- trump_pharma %>% filter(X_2 == 1)
+
+```
+
+## OBAMA DATA
+
+Some data cleaning:
+
+```{r}
+
+# change all columns class into factor and remove the columns with 1 level factor
+
+obama_ph_fac <- obama_pharma %>% mutate_if(is.numeric,as.factor)
+obama_ph_fac<-obama_ph_fac[, sapply(obama_ph_fac, nlevels) > 1]
+
+# change them back into numeric:
+obama_ph_num <- obama_ph_fac %>% mutate_if(is.factor,as.numeric)
+
+#impute NAs with mean :
+
+for(i in 1:ncol(obama_ph_num)) {
+  obama_ph_num[ , i][is.na(obama_ph_num[ , i])] <- mean(obama_ph_num[ , i], na.rm = TRUE)
+}
+
+```
+
+
+#### Correlation analysis
+
+```{r}
+ob_corrMat <- cor(obama_ph_num, method = "pearson")
+# #col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+# #corrplot(ob_corrMat, method="color", col=col(200),
+#          type="upper", order="hclust",
+#          tl.col="black", tl.srt=45, tl.cex= 0.7, #Text label color and rotation
+#          # Combine with significance
+#          sig.level = 0.01,
+#          # hide correlation coefficient on the principal diagonal
+#          diag=FALSE
+# )
+```
+
+```{r}
+library(RCurl) # getURL 
+library(leaps) # all subsets regression
+library(corrplot)
+library(caret)
+library(FNN)
+library(mlbench)
+# remove highly correlated
+ob_highlyCorr <- findCorrelation(ob_corrMat, cutoff=0.75)
+ob_noncor <- obama_ph_num[,-ob_highlyCorr]  #keep only those not highly correlated
+dim(ob_noncor)    ### 113 vars after highly correlated vars are removed + 1 var added below
+# correlationMatrix2 <- cor(noncor, method = "pearson")  ### only numeric vars
+# correlationMatrix2
+
+ob_noncor$X201X.PRICE.VAR.... <- obama_ph_num$X201X.PRICE.VAR....
+dim(ob_noncor) 
+```
+
+#### Normalizing the dataset
+
+```{r}
+normalize <- function(x) {
+               return ((x - min(x)) / (max(x) - min(x))) }
+ob_noncor_norm <- as.data.frame(lapply(ob_noncor, normalize))
+```
+
+
+#### Outliers - fin2014_2015_obama
+
+```{r}
+
+fin2014_2015_obama1 <- fin2014_2015_obama %>% mutate_if(is.numeric,as.factor)
+fin2014_2015_obama1<-fin2014_2015_obama1[, sapply(fin2014_2015_obama1, nlevels) > 2]
+fin2014_2015_obama1 <- fin2014_2015_obama1 %>% mutate_if(is.factor,as.numeric)
+fin2014_2015_obama1$X <- fin2014_2015_obama$X
+for(i in 1:ncol(fin2014_2015_obama1)) {
+  fin2014_2015_obama1[ , i][is.na(fin2014_2015_obama1[ , i])] <- mean(fin2014_2015_obama1[ , i], na.rm = TRUE)
+}
+lin_model <- lm(X201X.PRICE.VAR....~., data = fin2014_2015_obama1)
+plot(lin_model)
+out_price <- boxplot.stats(lin_model$residuals)$out
+out_price
+boxplot(lin_model$residuals)
+mtext(paste("Outliers: ", paste(out_price, collapse=", ")), cex=0.6)
+
+y <- fin2014_2015_obama1$X201X.PRICE.VAR....
+
+qnt <- quantile(y, probs=c(.25, .75), na.rm = T)  #get the values of the 1st and 3rd quartiles
+caps <- quantile(y, probs=c(.10, .90), na.rm = T) #values of the 5th and 95th percentile
+H <- 1.5 * IQR(y, na.rm = T)   ##calculate 1.5 x IQR
+y[y < (qnt[1] - H)] <- caps[1]
+y[y > (qnt[2] + H)] <- caps[2] 
+summary(y) 
+
+outlier_values2 <- boxplot.stats(y)$out
+outlier_values2  #
+
+```
+
+#### Visualizations
+```{r}
+
+boxplot(y)
+fin2014_2015_obama1$Sectors <- fin2014_2015_obama$Sector
+fin2014_2015_obama1 %>% 
+  ggplot(mapping = aes(x = Sectors, y = X201X.PRICE.VAR..../1000)) +
+  geom_col() +
+  coord_flip()
+
+hist(fin2014_2015_obama$X201X.PRICE.VAR...., breaks = 10)
+boxplot(obama_pharma$X201X.PRICE.VAR....)
+
+obama_pharma <- obama_pharma[-258,]
+
+summary(obama_pharma$X201X.PRICE.VAR....)
+boxplot(obama_pharma$X201X.PRICE.VAR....)
+
+which.max(obama_pharma$X201X.PRICE.VAR....)
+```
+
+
+#### Obama KNN model
+
+```{r}
+#divide into train and test
+set.seed(1)
+ob_rn_train <- sample(nrow(ob_noncor_norm), floor(nrow(ob_noncor_norm)*0.7))  #create train and test data sets
+ob_train <- ob_noncor_norm[ob_rn_train,]  
+ob_test <- ob_noncor_norm[-ob_rn_train,]
+ob_train_labelsKNN <- ob_train[,114]   ##DV in the training set
+ob_test_labelsKNN <- ob_test[,114]     ##DV in the test set
+ob_train_KNN <- ob_train[,-114]   ##Only keep IV in the training set
+ob_test_KNN <- ob_test[,-114]     ##Only keep IV in the test set
+
+```
+ 
+The best value of K is 8:
+```{r} 
+x <- 0
+for (i in 1:sqrt(nrow(ob_train)))
+{
+set.seed(1)
+ob_KNNmodel <- knn.reg(train =ob_train_KNN , test = ob_test_KNN, y = ob_train_labelsKNN , k = i)  
+ob_predicted <- ob_KNNmodel$pred
+  
+ob_rmse <- sqrt(mean((ob_test_labelsKNN-ob_predicted)^2))
+x[i] <- ob_rmse
+}
+
+plot(x, type="l", col="red")
+title(main = "Best K Value")
+
+which.min(x)
+```
+KNN model:
+```{r}
+set.seed(1)
+ob_KNNmodel <- knn.reg(train =ob_train_KNN , test = ob_test_KNN, y = ob_train_labelsKNN , k = 8)  
+ob_predicted <- ob_KNNmodel$pred
+plot(ob_test_labelsKNN, ob_predicted, xlab="y", ylab=expression(hat(y)))
+ob_errors <- ob_predicted - ob_test_labelsKNN
+hist(ob_errors)
+ob_rmse <- sqrt(mean((ob_test_labelsKNN-ob_predicted)^2))
+ob_rmse
+plot(ob_predicted, ob_test_KNN$X201X.PRICE.VAR....)
+plot(ob_predicted,ob_errors, main = "Predicted Values VS Errors", xlab = "Predicted", ylab = "Residuals")
+
+ob_rel_change <- abs(ob_errors) / ob_test_labelsKNN
+ob_pred25 <- table(ob_rel_change<0.25)["TRUE"] / nrow(ob_test) 
+ob_pred25
+
+summary(ob_noncor_norm$X201X.PRICE.VAR....)
+
+```
+
+
+
+
+#### Forward selection of important variables
+```{r}
+ob_norm <- ob_noncor_norm
+ob_norm $X201X.PRICE.VAR.... <- NULL
+library(MASS)
+
+full_obama <- lm(Class~., data= ob_norm)
+null_obama <- lm(Class~1,data=ob_norm)
+stepF_obama <- stepAIC(null_obama, scope=list(lower=null_obama, upper=full_obama), direction= "forward")
+summary(stepF_obama)
+```
+
+
+#### Obama Multiple linear regression
+
+```{r}
+set.seed(1)
+lm_rn_train <- sample(nrow(ob_noncor_norm), floor(nrow(ob_noncor_norm)*0.7))
+lm_train <- ob_noncor_norm[lm_rn_train,]
+lm_test <- ob_noncor_norm[-lm_rn_train,]
+```
+
+
+```{r}
+ob_model_mlr <- lm(X201X.PRICE.VAR....~., data=lm_train) 
+#summary(ob_model_mlr)
+lm_prediction <- predict(ob_model_mlr, newdata =lm_test)  
+```
+
+```{r}
+library(ggplot2)
+lm_errors <- lm_prediction - lm_test$X201X.PRICE.VAR....
+# ggplot(data = ob_noncor_norm) +
+#   geom_histogram(mapping = aes(x = lm_errors)) +
+#   title(main = "Multiple Linear Regression Errors Distribution", xlab("Errors"))
+  
+hist(lm_errors, main = "Multiple Linear Regression Errors Distribution", xlab = "Errors", breaks = 10)
+#title(main = "Multiple Linear Regression Errors Distribution", xlab = "Errors")
+
+lin_regr <- lm(lm_prediction~lm_test$X201X.PRICE.VAR...., data = lm_test)
+summary(lin_regr)
+plot(lm_prediction, lm_test$X201X.PRICE.VAR....)
+abline(a = 0.11908, b = 0.73419)
+```
+
+```{r}
+lm_rmse <- sqrt(mean((lm_test$X201X.PRICE.VAR.... - lm_prediction)^2))
+
+lm_rel_change <- abs(lm_errors) / lm_test$X201X.PRICE.VAR....
+lm_pred25 <- table(lm_rel_change<0.25)["TRUE"] / nrow(lm_test)
+lm_pred25
+paste("RMSE:", lm_rmse)
+paste("PREDICTION within 25%:", round(lm_pred25,2))
+```
+
+## TRUMP DATA
+
+Some data cleaning:
+
+```{r}
+
+# change all columns class into factor and remove the columns with 1 level factor
+
+trump_ph_fac <- trump_pharma %>% mutate_if(is.numeric,as.factor)
+trump_ph_fac<-trump_ph_fac[, sapply(trump_ph_fac, nlevels) > 1]
+
+# change them back into numeric:
+trump_ph_num <- trump_ph_fac %>% mutate_if(is.factor,as.numeric)
+
+#impute NAs with mean :
+
+for(i in 1:ncol(trump_ph_num)) {
+  trump_ph_num[ , i][is.na(trump_ph_num[ , i])] <- mean(trump_ph_num[ , i], na.rm = TRUE)
+}
+
+```
+#### Correlation analysis
+
+```{r}
+tr_corrMat <- cor(trump_ph_num, method = "pearson") 
+# remove highly correlated
+tr_highlyCorr <- findCorrelation(tr_corrMat, cutoff=0.75)
+tr_noncor <- trump_ph_num[,-ob_highlyCorr] 
+dim(tr_noncor)    ### 113 vars after highly correlated vars are removed + 1 var added below
+
+tr_noncor$X201X.PRICE.VAR.... <- trump_ph_num$X201X.PRICE.VAR....
+dim(tr_noncor) 
+```
+
+```{r}
+library(RCurl)
+library(leaps)
+library(corrplot)
+library(caret)
+library(FNN)
+library(mlbench)
+```
+
+#### Trump KNN model
+
+```{r}
+tr_noncor_norm <- as.data.frame(lapply(tr_noncor, normalize))
+fin_train_labelsKNN <- ob_noncor_norm[,114]
+fin_test_labelsKNN <- tr_noncor_norm[,114]
+fin_train <- ob_noncor_norm[,-114]
+fin_test <- tr_noncor_norm[,-114]
+set.seed(1)
+final_KNNmodel <- knn.reg(train =fin_train , test = fin_test, y = fin_train_labelsKNN , k = 8)  
+final_predicted <- final_KNNmodel$pred
+plot(fin_test_labelsKNN, final_predicted, xlab="Observed", ylab="Predicted", main = "Observed VS Predicted")
+fin_errors <- final_predicted - fin_test_labelsKNN
+final_rmse <- sqrt(mean((fin_test_labelsKNN-final_predicted)^2))
+final_rmse
+fin_rel_change <- abs(fin_errors) / fin_test_labelsKNN
+fin_pred25 <- table(fin_rel_change<0.25)["TRUE"] / nrow(fin_test) 
+fin_pred25
+
+plot(ob_predicted, ob_test_KNN$X201X.PRICE.VAR....)
+
+```
+
+
+#### Trump Multiple linear regression
+
+```{r}
+ #set.seed(1)
+#lm_rn_train <- sample(nrow(ob_noncor_norm), floor(nrow(ob_noncor_norm)*0.7))
+fin_lm_train <- ob_noncor_norm
+fin_lm_test <- tr_noncor_norm
+```
+
+
+```{r}
+final_model_mlr <- lm(X201X.PRICE.VAR....~., data=fin_lm_train) 
+fin_lm_prediction <- predict(final_model_mlr, newdata =fin_lm_test)  
+```
+
+Let's see the errors and plot them on a histogram. 
+```{r}
+fin_lm_errors <- fin_lm_prediction - fin_lm_test$X201X.PRICE.VAR....
+hist(fin_lm_errors)
+```
+
+Root mean square error and find the percentage of cases with less than 25% error.
+```{r}
+fin_lm_rmse <- sqrt(mean((fin_lm_test$X201X.PRICE.VAR.... - fin_lm_prediction)^2))
+
+fin_lm_rel_change <- abs(fin_lm_errors) / fin_lm_test$X201X.PRICE.VAR....
+fin_lm_pred25 <- table(fin_lm_rel_change<0.25)["TRUE"] / nrow(fin_lm_test)  ## gives the count of those who are true on the condition of rel_change<0.25
+##OR pred25 <- sum((rel_change<0.25)=="TRUE")/nrow(test)
+fin_lm_pred25
+paste("RMSE:", fin_lm_rmse)
+paste("PRED(25):", round(fin_lm_pred25,2))
+
+```
+
+
+
+## PHARMA DAILY DATA ##
+
+#### Load Pharma Sales dataset
+
+The dataset is built from the initial dataset consisted of 600000 transactional data collected in 6 years (period 2014-2019), indicating date and time of sale, pharmaceutical drug brand name and sold quantity, exported from Point-of-Sale system in the individual pharmacy. Selected group of drugs from the dataset (57 drugs) is classified to the following Anatomical Therapeutic Chemical (ATC) Classification System categories:
+
+M01AB - Anti-inflammatory and antirheumatic products, non-steroids, Acetic acid derivatives and related substances
+M01AE - Anti-inflammatory and antirheumatic products, non-steroids, Propionic acid derivatives
+N02BA - Other analgesics and antipyretics, Salicylic acid and derivatives
+N02BE/B - Other analgesics and antipyretics, Pyrazolones and Anilides
+N05B - Psycholeptics drugs, Anxiolytic drugs
+N05C - Psycholeptics drugs, Hypnotics and sedatives drugs
+R03 - Drugs for obstructive airway diseases
+R06 - Antihistamines for systemic use
+Sales data are resampled to the hourly, daily, weekly and monthly periods. Data is already pre-processed, where processing included outlier detection and treatment and missing data imputation.
+
+```{r}
+pharma_daily <- read.csv("/Users/aselkushkeyeva/Desktop/Year2/Fall2020/INF2167AppliedDataScienceUsingR/FinalProject/PharmaSales/salesdaily.csv")
+
+```
+
+#### Checking for correlated data in pharma sales
+```{r}
+num_data <- pharma_daily[,c(2:11)] ### only numeric independent vars
+correlationMatrix <- cor(num_data, method = "pearson") 
+correlationMatrix    # a 6x6 matrix   
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(correlationMatrix, method="color", col=col(200),   
+         type="upper", order="hclust", 
+         tl.col="black", tl.srt=45, tl.cex= 0.7, #Text label color and rotation
+         # Combine with significance
+         sig.level = 0.01, 
+         # hide correlation coefficient on the principal diagonal
+         diag=FALSE
+)           
+
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.6)
+highlyCorrelated
+
+```
+#### Linear Regression with R06 as a DV - RMSE - daily pharma data
+```{r}
+
+set.seed(123)
+pharma_train <- sample(nrow(pharma_daily), floor(nrow(pharma_daily)*0.7))
+train <- pharma_daily[pharma_train,]
+test <- pharma_daily[-pharma_train,]
+
+mod_sales <- lm(R06~Year+Month, data = train)
+prediction <- predict(mod_sales, newdata = test)
+
+errors <- prediction - test$R06
+hist(errors)
+
+rmse <- sqrt(mean((test$R06 - prediction)^2))
+
+rel_change <- abs(errors) / test$R06
+pred25 <- table(rel_change<0.25)["TRUE"] / nrow(test)  ## gives the count of those who are true on the condition of rel_change<0.25
+
+pred25
+paste("RMSE:", rmse)
+paste("PRED(25):", round(pred25,2))
+summary(pharma_daily$R06)
+```
+
+#### Transformed the pharma sales data to compile the medicine type in one column
+```{r}
+colnames(pharma_daily)
+pharma_daily_longer <- pharma_daily %>% 
+  pivot_longer(cols = c("M01AB","M01AE","N02BA","N02BE","N05B","N05C","R03","R06"), names_to = "medicine_type", values_to = "sold_quantity")
+```
+#### Linear regression and prediction on transformed pharma sales data
+```{r}
+set.seed(123)
+pharma_train1 <- sample(nrow(pharma_daily_longer), floor(nrow(pharma_daily_longer)*0.7))
+train1 <- pharma_daily_longer[pharma_train1,]
+test1 <- pharma_daily_longer[-pharma_train1,]
+
+mod_sales1 <- lm(sold_quantity~Year+Month, data = train1)
+prediction1 <- predict(mod_sales1, newdata = test1)
+
+errors1 <- prediction1 - test1$sold_quantity
+hist(errors1)
+
+rmse1 <- sqrt(mean((test1$sold_quantity - prediction1)^2))
+
+rel_change1 <- abs(errors1) / test1$sold_quantity
+pred25_1 <- table(rel_change1<0.25)["TRUE"] / nrow(test1)  ## gives the count of those who are true on the condition of rel_change<0.25
+
+pred25_1
+paste("RMSE:", rmse1)
+paste("PRED(25):", round(pred25_1,2))
+
+mean(pharma_daily_longer$sold_quantity)
+
+```
+
